@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kentucky Cutups for PFF Ultimate</title>
+<style>
+:root{--uk:#0033a0;--ink:#14171f;--mut:#5b6270;--line:#e3e6eb;--bg:#f6f7f9}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{background:var(--uk);color:#fff;padding:28px 24px}header .w{max-width:760px;margin:0 auto}
+h1{margin:0;font-size:26px;letter-spacing:.01em}header p{margin:6px 0 0;opacity:.85}
+main{max-width:760px;margin:0 auto;padding:24px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px 24px;margin-bottom:18px}
+h2{font-size:16px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em;color:var(--uk)}
+.drag{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.bm{display:inline-block;background:var(--uk);color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:8px;cursor:grab;font-size:16px;box-shadow:0 2px 0 #00226b}
+.bm:active{cursor:grabbing}
+.mut{color:var(--mut);font-size:14px}
+ol{margin:0;padding-left:22px}li{margin:6px 0}
+button{font:inherit;font-weight:600;border:1px solid var(--uk);color:var(--uk);background:#fff;border-radius:7px;padding:8px 14px;cursor:pointer}
+button.done{background:#1a7f37;border-color:#1a7f37;color:#fff}
+table{width:100%;border-collapse:collapse;font-size:14px}td{padding:6px 0;border-bottom:1px solid var(--line);vertical-align:top}td:first-child{width:34%;font-weight:600}
+kbd{background:#eef0f3;border:1px solid #d6dae0;border-radius:4px;padding:1px 5px;font-size:13px}
+</style></head><body>
+<header><div class="w"><h1>Kentucky Cutups for PFF Ultimate</h1><p>One button that builds a 50-play Kentucky cutup for any player and saves it to the matching position folder in your PFF Collection.</p></div></header>
+<main>
+<section class="card"><h2>1 · Add the button (one time)</h2>
+<div class="drag"><a class="bm" id="bm" href="#" title="Drag me to your bookmarks bar">Kentucky Cutups</a><a class="bm" id="rv" href="#" title="Drag me to your bookmarks bar" style="background:#fff;color:#0033a0;border:2px solid #0033a0;box-shadow:none">KC Review</a>
+<span class="mut">Drag <b>both</b> buttons up onto your Chrome bookmarks bar.<br>Don't see the bar? Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> (Mac: <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>).</span></div>
+<p class="mut" style="margin:16px 0 6px">If dragging doesn't work: copy the button code, right-click the bookmarks bar → <b>Add page…</b>, name it <b>Kentucky Cutups</b> (or <b>KC Review</b>), and paste the code into the URL box.</p>
+<button id="copy">Copy Kentucky Cutups code</button> <button id="copy2">Copy KC Review code</button>
+</section>
+<section class="card"><h2>2 · Build a cutup</h2><ol>
+<li>Open <b>ultimate.pff.com</b> and sign in as usual.</li>
+<li>Click <b>Kentucky Cutups</b> on your bookmarks bar. A panel opens on the right.</li>
+<li>Type <b>First name</b>, <b>Last name</b>, <b>School</b>. Leave Position on <i>Use his PFF position</i>, or pick one. Use <b>+ Add another position</b> to build more than one.</li>
+<li>Click <b>Build cutup</b>. If several players match, pick the right one.</li>
+<li>About 10 seconds later the playlist is saved in that position's folder as <b>POS_Last_First_School_#Jersey</b>, with a link to open it and a link to review it.</li></ol></section>
+<section class="card"><h2>3 · Review a build (quality control)</h2><ol>
+<li>On Ultimate, click <b>KC Review</b> (or <b>Review builds</b> at the top of the Kentucky Cutups panel).</li>
+<li>Every Kentucky cutup in your Collection is listed by position (Quarterbacks → Safeties), newest first, with the date and time it was created and who built it. Use the dropdown to show one position, or search by name or school. Click one.</li>
+<li>You get the full breakdown, cutup by cutup: each play's band (best / worst / recent / ranked), PFF grade, date, opponent (P4 marked), situation, his role, the play, the result, and a ✓ if it fits that cutup's rule.</li>
+<li>The top line checks the whole build: best vs. worst count, games used, average grade, any play that breaks its rule, and whether a rebuild with today's data would pick the same 50.</li>
+<li><b>Copy table for Sheets</b> copies the whole breakdown so you can paste it into a spreadsheet to mark up.</li></ol></section>
+<section class="card"><h2>What it does</h2><table>
+<tr><td>Finds his plays</td><td>Every 2026 snap PFF has for him (tick 2025 to include last season), straight from Ultimate under your own login. No API key, no CSV download.</td></tr>
+<tr><td>Builds the 50</td><td>Kentucky plan for the position: 41 position plays, 5 Negative Plays, 4 vs. Top Competition. No repeats; best plays outnumber worst; max 3 per game; RB zone, gap and short-yardage plays are handoffs only; Pass Pro uses snaps where he engages; Routes &amp; Targets puts targets first.</td></tr>
+<tr><td>Saves it</td><td>Playlist named <b>POS_Last_First_School</b> (e.g. RB_Baxter_CJ_Kentucky), in cutup order, notes list the breakdown. It goes in the shared position folder (Quarterbacks … Safeties). A rebuild gets a dated name and never overwrites.</td></tr>
+<tr><td>Short cutups</td><td>If he doesn't have enough plays of a type, the panel shows which cutup came up short.</td></tr>
+</table></section>
+<p class="mut">The buttons load the latest version every time they are clicked, so rule changes reach everyone automatically. No re-install needed.</p>
+<p class="mut">Works in Chrome or Edge on a computer. Each coach uses their own PFF sign-in; the button never stores passwords or keys.</p>
+</main>
+<script type="text/plain" id="src">(function(){if(location.hostname!=='ultimate.pff.com'){alert('Open PFF Ultimate (ultimate.pff.com) first, then click Kentucky Cutups.');return;}window.__kcMode='open';fetch('https://raw.githubusercontent.com/PeteNochta13/kentucky-cutups/main/kc.js?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(t){(0,eval)(t);}).catch(function(e){alert('Kentucky Cutups could not load ('+e.message+'). Check the internet connection and try again.');});})();</script>
+<script type="text/plain" id="src2">(function(){if(location.hostname!=='ultimate.pff.com'){alert('Open PFF Ultimate (ultimate.pff.com) first, then click KC Review.');return;}window.__kcMode='review';fetch('https://raw.githubusercontent.com/PeteNochta13/kentucky-cutups/main/kc.js?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(t){(0,eval)(t);}).catch(function(e){alert('KC Review could not load ('+e.message+'). Check the internet connection and try again.');});})();</script>
+<script>
+(function(){function setup(srcId,aId,btnId,label){var bm='javascript:'+encodeURIComponent(document.getElementById(srcId).textContent);var a=document.getElementById(aId);a.href=bm;
+a.addEventListener('click',function(e){e.preventDefault();alert('Drag this button onto your bookmarks bar, then click it while you are on PFF Ultimate.');});
+var c=document.getElementById(btnId);c.onclick=function(){function ok(){c.textContent='Copied ✓';c.className='done';setTimeout(function(){c.textContent=label;c.className='';},2500);}
+function fb(){var t=document.createElement('textarea');t.value=bm;document.body.appendChild(t);t.select();try{document.execCommand('copy');ok();}catch(e){}t.remove();}
+if(navigator.clipboard){navigator.clipboard.writeText(bm).then(ok,fb);}else fb();};}
+setup('src','bm','copy','Copy Kentucky Cutups code');setup('src2','rv','copy2','Copy KC Review code');})();
+</script></body></html>
