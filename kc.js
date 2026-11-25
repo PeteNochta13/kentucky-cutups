@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-25T15:35:54.846Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-25T15:38:51.049Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -789,7 +789,7 @@ function describe(p) {
   if (p.roles.has('Run defense') && !bits.length) bits.push('Run D');
   if (p.pa_fake && !p.roles.has('Ball carrier')) bits.push('PA fake');
   const ctx = [];
-  if (p.run_concept) ctx.push(p.run_concept);
+  if (p.run_concept && !/undefined|^none$/i.test(p.run_concept)) ctx.push(p.run_concept);
   if (p.play_action) ctx.push('PA');
   if (p.screen) ctx.push('Screen');
   if (p.coverage_scheme) ctx.push(p.coverage_scheme);
@@ -973,6 +973,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-25T15:35:54.846Z";
+window.KCApp.built = "2026-11-25T15:38:51.049Z";
 window.KCApp[mode]();
 })();
