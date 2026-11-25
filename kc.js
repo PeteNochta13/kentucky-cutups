@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-25T15:38:51.049Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-25T22:28:12.821Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -186,6 +186,19 @@ function adapt(r, t, p4) {
     }
   }
   p.roles = roles; p.results = results;
+  // how much he is part of the play, used to rank plays inside every cutup:
+  // 4 = he makes a play, is targeted in coverage, or is first contact / at the point of attack
+  //     (offense: ball carrier, target, engaged blocker, pressure allowed)
+  // 3 = PFF graded him or lists him as a key player on the play
+  // 1 = the ball came to his area (deep shot while he's deep, run reaching the second level)
+  // 0 = nothing to evaluate
+  const first = String(r.pff_FIRSTCONTACT || '').split(/;\s*/).includes(t);
+  const keyp = String(r.pff_KEYPLAYERS || '').includes(t + ' (') || has(r.pff_PURSUIT, t) || String(r.pff_PRESSUREDETAIL || '').includes(t);
+  let inv = 0;
+  if (results.size || first || roles.has('Primary coverage') || roles.has('Ball carrier') || roles.has('Target receiver') || (roles.has('Pass blocker') && p.engaged)) inv = 4;
+  else if ((grade !== null && grade !== 0) || keyp) inv = 3;
+  else if (def && ((pass && (r.pff_DEEPPASS === '1' || (num(r.pff_PASSDEPTH) || 0) >= 15) && (p.depth || 0) >= 8) || (run && (gain || 0) >= 8))) inv = 1;
+  p.involve = inv;
   return p;
 }
 
@@ -345,7 +358,9 @@ function take(pool, n, used, perGame, cap, band, out) {
 function pickCutup(c, plays, used) {
   const all = plays.filter(p => !used.has(p.play_id) && c.match(p));
   // preferred plays (e.g. targets, engaged pass pro) are used first; the rest only if needed
-  const tiers = c.prefer ? [all.filter(c.prefer), all] : [all];
+  // plays he is involved in come first (see adapt: involve); plays with nothing to evaluate only if needed
+  const inv = q => q.filter(p => p.involve > 0);
+  const tiers = (c.prefer ? [inv(all.filter(c.prefer)), all.filter(c.prefer), inv(all), all] : [inv(all), all]).filter(t => t.length);
   const target = c.plays, perGame = {}, out = [], notes = [], lowBest = [];
   const have = k => out.filter(x => x.band === k).length;
   const runTier = (cands, cap) => {
@@ -355,24 +370,50 @@ function pickCutup(c, plays, used) {
     // (+0.5, then 0.0 clean reps) so the best slots still show his ceiling. Never a negative play.
     let bpool = c.best_pool ? recent.filter(c.best_pool) : graded.filter(p => p.grade >= 0);
     let wpool = c.worst_pool ? recent.filter(c.worst_pool) : graded.filter(p => p.grade <= -0.5);
-    bpool = bpool.slice().sort((a, b) => cmpKey([c.best_key ? c.best_key(a) : 0, -g0(a)], [c.best_key ? c.best_key(b) : 0, -g0(b)]));
+    bpool = bpool.slice().sort((a, b) => cmpKey([c.best_key ? c.best_key(a) : 0, -g0(a), -(a.involve || 0)], [c.best_key ? c.best_key(b) : 0, -g0(b), -(b.involve || 0)]));
     wpool = wpool.slice().sort((a, b) => cmpKey([c.worst_key ? c.worst_key(a) : 0, g0(a)], [c.worst_key ? c.worst_key(b) : 0, g0(b)]));
     const before = out.length;
     take(bpool, c.best - have('best'), used, perGame, cap, 'best', out);
     if (!c.best_pool) out.slice(before).filter(p => p.grade < 1).forEach(p => lowBest.push(p.grade));
     take(wpool, c.worst - have('worst'), used, perGame, cap, 'worst', out);
-    let fill = recent;
+    let fill = recent.filter(p => p.involve > 0).concat(recent.filter(p => !(p.involve > 0)));
     if ((c.best_pool || c.worst_pool) && c.recent === 0) fill = recent.filter(p => (c.best_pool && c.best_pool(p)) || (c.worst_pool && c.worst_pool(p)));
-    take(fill, target - out.length, used, perGame, cap, 'recent', out);
+    // unfilled best slots stay open (filled below with his next-best plays), so recent plays don't take them
+    const hold = finalPass || c.best_pool ? 0 : Math.max(0, c.best - have('best'));
+    take(fill, target - out.length - hold, used, perGame, cap, 'recent', out);
   };
+  let finalPass = false;
   const run = cap => tiers.forEach(t => { if (out.length < target) runTier(t.filter(p => !used.has(p.play_id)), cap); });
+  // best slots still empty: next best available play in this cutup, highest grade first (preferred plays first)
+  const nextBest = cap => {
+    if (c.best_pool || c.ranked_key) return 0;
+    let n = 0;
+    for (const t of tiers) {
+      const need = Math.min(c.best - have('best') - have('next best'), target - out.length);
+      if (need <= 0) break;
+      const pool = t.filter(p => !used.has(p.play_id)).sort((a, b) => ((b.grade === null ? -9 : b.grade) - (a.grade === null ? -9 : a.grade)) || ((b.involve || 0) - (a.involve || 0)));
+      const before = out.length;
+      take(pool, need, used, perGame, cap, 'next best', out);
+      out.slice(before).forEach(p => { if (p.grade !== null && p.grade >= 0) p.band = 'best'; });
+      n += out.length - before;
+    }
+    return n;
+  };
   run(true);
-  if (out.length < target) { const b = out.length; run(false); if (out.length > b) notes.push(`3-per-game limit relaxed for ${out.length - b} play(s)`); }
+  let nb = nextBest(true);
+  if (out.length < target || c.best - have('best') - have('next best') > 0) {
+    const b = out.length; nb += nextBest(false); finalPass = true; run(false);
+    if (out.length > b) notes.push(`3-per-game limit relaxed for ${out.length - b} play(s)`);
+  }
+  finalPass = true; run(true); run(false);
+  const nbs = out.filter(p => p.band === 'next best');
+  if (nbs.length) notes.push(`No more 0.0-or-better plays for ${nbs.length} best slot(s): his next-best plays in this cutup were used (${nbs.map(p => (p.grade === null ? 'ungraded' : (p.grade > 0 ? '+' : '') + p.grade)).join(', ')})`);
   if (lowBest.length) {
     const h = lowBest.filter(g => g === 0.5).length, z = lowBest.filter(g => g === 0).length;
-    notes.push(`No more +1 to +2 plays left for this cutup: best slots use his next-highest grades (${[h ? h + ' at +0.5' : '', z ? z + ' at 0.0' : ''].filter(Boolean).join(', ')})`);
+    notes.push(`No more +1 to +2 plays left for this cutup: best slots use his next-highest grades (${[h ? h + ' at +0.5' : '', z ? z + ' at 0.0' : ''].filter(Boolean).join(', ')}), plays where he makes a play / is targeted / is at the point of attack first`);
   }
   if (c.prefer) { const k = out.filter(c.prefer).length; if (k < out.length) notes.push(`${k} of ${out.length} from the preferred plays; the rest filled from the cutup's other plays`); }
+  { const u = out.filter(p => !(p.involve > 0)).length; if (u) notes.push(`${u} play(s) where he isn't directly involved: he didn't have enough involved plays of this type`); }
   return { picked: out, notes };
 }
 
@@ -394,8 +435,11 @@ function build(PLAN, plays, code) {
       for (const r of order) {
         if (spare <= 0) break;
         const c = r.cut;
+        // spare slots go to his best remaining plays for the cutup (highest grade first, newest on ties)
         let cands = byRecent(plays.filter(p => !used.has(p.play_id) && c.match(p)));
         if (c.best_pool || c.worst_pool) cands = cands.filter(p => (c.best_pool && c.best_pool(p)) || (c.worst_pool && c.worst_pool(p)));
+        if (c.prefer) cands = cands.filter(c.prefer).concat(cands.filter(p => !c.prefer(p)));
+        cands = cands.map((p, i) => [p, i]).sort((a, b) => ((b[0].grade === null ? -9 : b[0].grade) - (a[0].grade === null ? -9 : a[0].grade)) || ((b[0].involve || 0) - (a[0].involve || 0)) || (c.prefer ? (c.prefer(b[0]) - c.prefer(a[0])) : 0) || a[1] - b[1]).map(x => x[0]);
         const g = {}; r.plays.forEach(x => g[x.game_id] = (g[x.game_id] || 0) + 1);
         const pick = cands.find(p => (g[p.game_id] || 0) < PER_GAME) || cands[0];
         if (pick) { used.add(pick.play_id); r.plays.push(Object.assign({}, pick, { band: 'rollover' })); rolled[c.label] = (rolled[c.label] || 0) + 1; spare--; progress = true; }
@@ -403,7 +447,7 @@ function build(PLAN, plays, code) {
     }
     results.forEach(r => { if (rolled[r.cut.label] && !r.cut.universal) r.notes.push(`+${rolled[r.cut.label]} rollover play(s)`); });
   }
-  const bo = { ranked: 0, best: 1, worst: 2, recent: 3, rollover: 4 };
+  const bo = { ranked: 0, best: 1, 'next best': 2, worst: 3, recent: 4, rollover: 5 };
   results.forEach(r => r.plays.sort((a, b) => bo[a.band] - bo[b.band]));
   const cf = PLAN.FACTORS.map(f => {
     const cs = results.filter(r => !r.cut.universal && r.cut.cf.includes(f.code));
@@ -785,6 +829,7 @@ function describe(p) {
   if (p.roles.has('Pass blocker')) bits.push(p.engaged ? 'Pass pro (engaged)' : 'Pass pro');
   if (p.roles.has('Run blocker')) bits.push('Run block');
   if (p.roles.has('Pass rushing')) bits.push('Rush');
+  if (p.roles.has('Primary coverage')) bits.push('Targeted in coverage' + (p.targeted_depth !== null ? ` ${p.targeted_depth}y` : ''));
   if (p.roles.has('Coverage')) bits.push('Cov ' + (p.coverage_role || ''));
   if (p.roles.has('Run defense') && !bits.length) bits.push('Run D');
   if (p.pa_fake && !p.roles.has('Ball carrier')) bits.push('PA fake');
@@ -795,6 +840,10 @@ function describe(p) {
   if (p.coverage_scheme) ctx.push(p.coverage_scheme);
   if (p.pressure) ctx.push('Pressure');
   const res = [...p.results];
+  if (p.involve === 0) res.push('not involved');
+  else if (p.involve === 1) res.push('ball to his area');
+  else if (p.involve === 3 && !p.results.size) res.push('graded / PFF key player');
+  else if (p.involve === 4 && !p.results.size && !p.roles.has('Primary coverage') && !p.roles.has('Ball carrier') && !p.roles.has('Target receiver') && !p.roles.has('Pass blocker')) res.push('first contact');
   if (p.gain !== null && (p.roles.has('Ball carrier') || p.results.has('Reception'))) res.unshift((p.gain > 0 ? '+' : '') + p.gain + ' yds');
   return { role: bits.join(', ') || '—', ctx: ctx.join(' · '), res: res.join(', ') };
 }
@@ -833,6 +882,7 @@ const RCSS = `
 #kc-review .b{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;text-transform:uppercase}
 #kc-review .b-best{background:#e3f5e8;color:#1a7f37}#kc-review .b-ranked{background:#e6edfb;color:#0033a0}
 #kc-review .b-worst{background:#fde8e6;color:#b42318}#kc-review .b-recent{background:#eef0f3;color:#414854}
+#kc-review .b-next-best{background:#eaf6ee;color:#2f6b40;border:1px dashed #7fbf93}
 #kc-review .b-rollover{background:#fff3dc;color:#93590b}#kc-review .b-unknown{background:#f4f4f4;color:#888}
 #kc-review .ok{color:#1a7f37;font-weight:700}#kc-review .no{color:#b42318;font-weight:700}
 #kc-review .gp{color:#1a7f37;font-weight:600}#kc-review .gn{color:#b42318;font-weight:600}
@@ -932,7 +982,7 @@ async function review(openId) {
         drift = { changed, available: rb.available, results: rb.results };
       } catch (e) { drift = { error: e.message }; }
       const g = ids.map(id => byId[id] && byId[id].grade).filter(x => x !== null && x !== undefined);
-      const nb = ids.filter(id => band[id] === 'best' || band[id] === 'ranked').length, nw = ids.filter(id => band[id] === 'worst').length;
+      const nnb = ids.filter(id => band[id] === 'next best').length, nb = ids.filter(id => band[id] === 'best' || band[id] === 'ranked').length, nw = ids.filter(id => band[id] === 'worst').length;
       const fails = ids.filter((id, i) => !byId[id] || !cuts[seg[i]].match(byId[id])).length;
       const games = {}; ids.forEach(id => { const p = byId[id]; if (p) games[p.game_id] = 1; });
       const avg = g.length ? g.reduce((a, b) => a + b, 0) / g.length : null;
@@ -940,7 +990,7 @@ async function review(openId) {
         <div class="mut">${escH(player.first_name)} ${escH(player.last_name)} · ${escH((player.team || {}).city || '')} · PFF ${escH(player.position)} #${escH(player.jersey_number || '')} · created ${escH(stamp(created) || meta.built)}${ps.user_name ? ' by ' + escH(ps.user_name) : ''}</div>
         <div class="kr-sum">
           <span class="kr-pill">${ids.length} plays</span>
-          <span class="kr-pill ${nb >= nw ? 'good' : 'bad'}">${nb} best / ranked · ${nw} worst</span>
+          <span class="kr-pill ${nb + nnb >= nw ? 'good' : 'bad'}">${nb} best / ranked${nnb ? ' · ' + nnb + ' next best' : ''} · ${nw} worst</span>
           <span class="kr-pill">${Object.keys(games).length} games</span>
           <span class="kr-pill">avg grade ${fmtG(avg)}</span>
           <span class="kr-pill ${fails ? 'bad' : 'good'}">${fails ? fails + ' play(s) do not fit their cutup rule' : 'every play fits its cutup rule'}</span>
@@ -959,7 +1009,7 @@ async function review(openId) {
           if (!p) return `<tr><td class="n">${id}</td><td colspan="9" class="mut">Not in his play data</td></tr>`;
           const d = describe(p), fit = c.match(p), b = band[id] || 'unknown';
           out.push([c.name, id, b, fmtG(p.grade), p.game_date, p.opponent || '', p.quarter || '', p.down ? p.down + ' & ' + p.distance : '', d.role, d.ctx, d.res, fit ? 'yes' : 'NO']);
-          return `<tr><td class="n">${id}</td><td><span class="b b-${b}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_power4 ? ' <span class="mut">P4</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
+          return `<tr><td class="n">${id}</td><td><span class="b b-${b.replace(' ', '-')}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_power4 ? ' <span class="mut">P4</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
         }).join('');
         const notes = rr && rr.notes && rr.notes.length ? rr.notes.map(n => `<div class="note">• ${escH(n)}</div>`).join('') : '';
         box.appendChild(el(`<div class="kr-cut">${head}${notes}<table><thead><tr><th>Play ID</th><th>Band</th><th>Grade</th><th>Date</th><th>Opp</th><th>Situation</th><th>His role</th><th>Play</th><th>Result</th><th>Fits</th></tr></thead><tbody>${body}</tbody></table></div>`));
@@ -973,6 +1023,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-25T15:38:51.049Z";
+window.KCApp.built = "2026-11-25T22:28:12.821Z";
 window.KCApp[mode]();
 })();
