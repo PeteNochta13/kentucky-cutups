@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-25T22:28:12.821Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T01:25:27.211Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -327,13 +327,19 @@ const RULES = {
   }
 };
 
+const DB_CODES = ['SAF', 'STAR', 'CB'];
+const NO_TARGET_PREF = ['Run D & Tackling', 'Run Fits & Perimeter', 'Tackling & Missed Tackles', 'Blitz & Pressure', 'Run Support', 'Open-Field Tackling'];
 function cutups(PLAN, code) {
   const P = PLAN.POSITIONS.find(x => x.code === code);
   let n = 0;
   return P.rows.map(r => {
     const rule = r.u ? (r.name === 'Negative Plays' ? NEG : TOP) : RULES[code][r.name];
     if (!rule) throw new Error('No rule for ' + code + ' ' + r.name);
-    return Object.assign({}, rule, { name: r.name, label: r.u ? 'U' : String(++n), universal: !!r.u, filter: r.filter, plays: r.plays, best: r.best || 0, worst: r.worst || 0, recent: r.recent || 0, ranked: !!r.ranked, specs: r.specs, note: r.note || '', cf: r.cf });
+    const c = Object.assign({}, rule, { name: r.name, label: r.u ? 'U' : String(++n), universal: !!r.u, filter: r.filter, plays: r.plays, best: r.best || 0, worst: r.worst || 0, recent: r.recent || 0, ranked: !!r.ranked, specs: r.specs, note: r.note || '', cf: r.cf });
+    // DBs: inside every cutup, plays where he is targeted in coverage come first (the cutup's own rule still decides what qualifies)
+    // (run / tackling / blitz cutups keep point-of-attack ranking: tackles, first contact, pressure)
+    if (DB_CODES.includes(code) && !c.prefer && !NO_TARGET_PREF.includes(r.name)) { c.prefer = p => p.roles.has('Primary coverage'); c.prefer_label = 'targeted in coverage'; }
+    return c;
   });
 }
 
@@ -412,7 +418,7 @@ function pickCutup(c, plays, used) {
     const h = lowBest.filter(g => g === 0.5).length, z = lowBest.filter(g => g === 0).length;
     notes.push(`No more +1 to +2 plays left for this cutup: best slots use his next-highest grades (${[h ? h + ' at +0.5' : '', z ? z + ' at 0.0' : ''].filter(Boolean).join(', ')}), plays where he makes a play / is targeted / is at the point of attack first`);
   }
-  if (c.prefer) { const k = out.filter(c.prefer).length; if (k < out.length) notes.push(`${k} of ${out.length} from the preferred plays; the rest filled from the cutup's other plays`); }
+  if (c.prefer) { const k = out.filter(c.prefer).length; if (c.prefer_label) { if (out.length) notes.push(`${k} of ${out.length} ${c.prefer_label}` + (k < out.length ? '; the rest are his most involved other plays for this cutup' : '')); } else if (k < out.length) notes.push(`${k} of ${out.length} from the preferred plays; the rest filled from the cutup's other plays`); }
   { const u = out.filter(p => !(p.involve > 0)).length; if (u) notes.push(`${u} play(s) where he isn't directly involved: he didn't have enough involved plays of this type`); }
   return { picked: out, notes };
 }
@@ -1023,6 +1029,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-25T22:28:12.821Z";
+window.KCApp.built = "2026-11-26T01:25:27.211Z";
 window.KCApp[mode]();
 })();
