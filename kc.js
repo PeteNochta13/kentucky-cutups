@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T12:29:20.590Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T12:39:59.506Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -105,7 +105,7 @@ function adapt(r, t, p4) {
   const gain = num(r.pff_GAINLOSS);
   const p = {
     play_id: r.pff_PLAYID, game_id: r.pff_GAMEID, game_date: r.pff_GAMEDATE, season: num(r.pff_GAMESEASON), week: num(r.pff_WEEK),
-    seq: num(r.pff_SORTORDER), opponent: opp, opponent_power4: !!(p4 && p4.has(opp)), quarter: num(r.pff_QUARTER), clock: r.pff_CLOCK,
+    seq: num(r.pff_SORTORDER), opponent: opp, opponent_power4: !!(p4 && p4.has(opp)), opponent_next: !!(p4 && p4.next && p4.next.has(opp)), quarter: num(r.pff_QUARTER), clock: r.pff_CLOCK,
     down: num(r.pff_DOWN), distance: num(r.pff_DISTANCE), yard_line: r.pff_FIELDPOSITION, grade, pos, team,
     play_action: r.pff_PLAYACTION === '1', screen: r.pff_SCREEN === '1', rpo: r.pff_RUNPASSOPTION === '1',
     quick_game: pass && num(r.pff_TIMETOTHROW) !== null && num(r.pff_TIMETOTHROW) <= 2.0,
@@ -222,7 +222,19 @@ const SACK_A = ['Sack allowed', 'Hit allowed', 'Hurry allowed', 'Pressure allowe
 const SACK = ['Sack', 'Hit', 'Hurry', 'Pressure', 'Batted pass-defender'];
 const BALL = ['Interception caught', 'Pass broken up', 'Dropped interception'];
 const NEG = R(p => p.grade !== null && p.grade <= -0.5, { worst_pool: () => true });
-const TOP = R(p => !!p.opponent_power4);
+// vs. Top Competition: Power Four (Big Ten, SEC, ACC, Big 12) plays where he is involved first; if he runs short,
+// Mountain West plays where he is involved, then his strong plays (graded +1 or better, involved) against anyone else,
+// and only then Power Four plays where nothing happened. Worst slots: Power Four, then Mountain West.
+const strongPlay = p => p.grade !== null && p.grade >= 1 && p.involve >= 3;
+const TOP = R(p => !!p.opponent_power4 || (p.opponent_next && p.involve > 0) || strongPlay(p), {
+  worst_pool: p => (p.opponent_power4 || p.opponent_next) && p.grade !== null && p.grade <= -0.5,
+  tiers_fn: all => [
+    all.filter(p => p.opponent_power4 && p.involve > 0),
+    all.filter(p => !p.opponent_power4 && p.opponent_next && p.involve > 0),
+    all.filter(p => !p.opponent_power4 && !p.opponent_next),
+    all.filter(p => p.opponent_power4 && !(p.involve > 0))],
+  lesser_note: true
+});
 const STOPS = R(p => (res(p, 'Tackler') && p.def_success) || res(p, 'Missed tackle'), { best_pool: p => res(p, 'Tackler') && p.def_success, worst_pool: p => res(p, 'Missed tackle') });
 const TACKLES = R(p => res(p, 'Tackler', 'Missed tackle'), { best_pool: p => res(p, 'Tackler'), worst_pool: p => res(p, 'Missed tackle') });
 const BALLPROD = R(p => res(p, ...BALL), { best_pool: p => res(p, ...BALL), best_key: prio(BALL) });
@@ -382,7 +394,9 @@ function pickCutup(c, plays, used) {
   // preferred plays (e.g. targets, engaged pass pro) are used first; the rest only if needed
   // plays he is involved in come first (see adapt: involve); plays with nothing to evaluate only if needed
   const inv = q => q.filter(p => p.involve > 0);
-  const tiers = (c.prefer ? [inv(all.filter(c.prefer)), all.filter(c.prefer), inv(all), all] : [inv(all), all]).filter(t => t.length);
+  let tiers = c.tiers_fn ? c.tiers_fn(all) : (c.prefer ? [inv(all.filter(c.prefer)), all.filter(c.prefer), inv(all), all] : [inv(all), all]);
+  if (c.tiers_fn && c.prefer) tiers = tiers.flatMap(t => [t.filter(c.prefer), t.filter(p => !c.prefer(p))]);
+  tiers = tiers.filter(t => t.length);
   const target = c.plays, perGame = {}, out = [], notes = [], lowBest = [];
   const have = k => out.filter(x => x.band === k).length;
   const runTier = (cands, cap) => {
@@ -436,6 +450,8 @@ function pickCutup(c, plays, used) {
     notes.push(`No more +1 to +2 plays left for this cutup: best slots use his next-highest grades (${[h ? h + ' at +0.5' : '', z ? z + ' at 0.0' : ''].filter(Boolean).join(', ')}), plays where he makes a play / is targeted / is at the point of attack first`);
   }
   if (c.prefer) { const k = out.filter(c.prefer).length; if (c.prefer_label) { if (out.length) notes.push(`${k} of ${out.length} ${c.prefer_label}` + (k < out.length ? '; the rest are his most involved other plays for this cutup' : '')); } else if (k < out.length) notes.push(`${k} of ${out.length} from the preferred plays; the rest filled from the cutup's other plays`); }
+  if (c.lesser_note) { const m = out.filter(p => !p.opponent_power4 && p.opponent_next).length, l = out.filter(p => !p.opponent_power4 && !p.opponent_next).length;
+    if (m || l) notes.push(`Not enough involved Power Four plays: ${[m ? m + ' vs. Mountain West' : '', l ? l + ' vs. other opponents (graded +1 or better)' : ''].filter(Boolean).join(', ')}`); }
   { const u = out.filter(p => !(p.involve > 0)).length; if (u) notes.push(`${u} play(s) where he isn't directly involved: he didn't have enough involved plays of this type`); }
   return { picked: out, notes };
 }
@@ -602,10 +618,26 @@ function tagsFor(rows, player) {
   return tags;
 }
 
-function p4set() {
-  try { const s = JSON.parse(localStorage.getItem('kc.p4') || 'null'); if (Array.isArray(s) && s.length) return new Set(s); } catch (e) {}
-  return new Set(P4_DEFAULT);
+// Power Four = teams in the Big Ten, SEC, ACC and Big 12 (Ultimate's own conference data, read once per page);
+// Mountain West is the next level down (used by vs. Top Competition when he is short). SEC list is only a fallback.
+const P4_CONFS = ['big ten', 'sec', 'acc', 'big 12'], NEXT_CONFS = ['mwc', 'mountain west'];
+let P4CACHE = null;
+async function loadP4() {
+  if (P4CACHE) return P4CACHE;
+  const yr = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+  try {
+    const j = await getJSON('/api/v1/teams?league=NCAA');
+    const arr = Array.isArray(j) ? j : (Object.values(j).find(Array.isArray) || []);
+    const conf = t => (t.groups || []).filter(g => g.type === 'CONF' && (g.start_season || 0) <= yr && (g.end_season || 3000) >= yr).map(g => String(g.name || '').trim().toLowerCase());
+    const s = new Set(arr.filter(t => conf(t).some(c => P4_CONFS.includes(c))).map(t => t.video_abbreviation).filter(Boolean));
+    s.next = new Set(arr.filter(t => conf(t).some(c => NEXT_CONFS.includes(c))).map(t => t.video_abbreviation).filter(Boolean));
+    if (s.size >= 40) { P4CACHE = s; return s; }
+  } catch (e) {}
+  P4CACHE = new Set(P4_DEFAULT); P4CACHE.next = new Set();
+  return P4CACHE;
 }
+function p4set() { return P4CACHE || new Set(P4_DEFAULT); }
+
 
 function buildFor(rows, player, code) {
   const tags = tagsFor(rows, player);
@@ -773,6 +805,7 @@ function open() {
       if (!codes.length) throw new Error(`His PFF position (${player.position}) does not map to a Kentucky position. Pick one.`);
       const t = player.team || {};
       step(`${player.first_name} ${player.last_name} — ${t.city || t.abbreviation} ${player.position} #${player.jersey_number}`, 'ok');
+      await loadP4();
       let s = step('Finding his plays…');
       const ids = await playIds(player.id, years);
       if (!ids.length) throw new Error(`No ${years.join('/')} plays found for him in Ultimate.`);
@@ -983,6 +1016,7 @@ async function review(openId) {
       const csv = await playFeed(ids.map(Number));
       const rows = KC.parseCSV(csv);
       const tags = tagsFor(rows, player);
+      await loadP4();
       const p4 = p4set();
       const byId = {};
       tags.forEach(tg => KC.playsFor(rows, tg, p4).forEach(p => { if (!byId[p.play_id]) byId[p.play_id] = p; }));
@@ -1033,7 +1067,7 @@ async function review(openId) {
           if (!p) return `<tr><td class="n">${id}</td><td colspan="9" class="mut">Not in his play data</td></tr>`;
           const d = describe(p), fit = c.match(p), b = band[id] || 'unknown';
           out.push([c.name, id, b, fmtG(p.grade), p.game_date, p.opponent || '', p.quarter || '', p.down ? p.down + ' & ' + p.distance : '', d.role, d.ctx, d.res, fit ? 'yes' : 'NO']);
-          return `<tr><td class="n">${id}</td><td><span class="b b-${b.replace(' ', '-')}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_power4 ? ' <span class="mut">P4</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
+          return `<tr><td class="n">${id}</td><td><span class="b b-${b.replace(' ', '-')}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_power4 ? ' <span class="mut">P4</span>' : p.opponent_next ? ' <span class="mut">MWC</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
         }).join('');
         const notes = rr && rr.notes && rr.notes.length ? rr.notes.map(n => `<div class="note">• ${escH(n)}</div>`).join('') : '';
         box.appendChild(el(`<div class="kr-cut">${head}${notes}<table><thead><tr><th>Play ID</th><th>Band</th><th>Grade</th><th>Date</th><th>Opp</th><th>Situation</th><th>His role</th><th>Play</th><th>Result</th><th>Fits</th></tr></thead><tbody>${body}</tbody></table></div>`));
@@ -1047,6 +1081,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-26T12:29:20.590Z";
+window.KCApp.built = "2026-11-26T12:39:59.506Z";
 window.KCApp[mode]();
 })();
