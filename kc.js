@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T12:39:59.506Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T12:47:24.967Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -105,7 +105,7 @@ function adapt(r, t, p4) {
   const gain = num(r.pff_GAINLOSS);
   const p = {
     play_id: r.pff_PLAYID, game_id: r.pff_GAMEID, game_date: r.pff_GAMEDATE, season: num(r.pff_GAMESEASON), week: num(r.pff_WEEK),
-    seq: num(r.pff_SORTORDER), opponent: opp, opponent_power4: !!(p4 && p4.has(opp)), opponent_next: !!(p4 && p4.next && p4.next.has(opp)), quarter: num(r.pff_QUARTER), clock: r.pff_CLOCK,
+    seq: num(r.pff_SORTORDER), opponent: opp, opponent_power4: !!(p4 && p4.has(opp)), opponent_level: p4 && p4.level ? (p4.level.get(opp) || 4) : (p4 && p4.has(opp) ? 1 : 4), quarter: num(r.pff_QUARTER), clock: r.pff_CLOCK,
     down: num(r.pff_DOWN), distance: num(r.pff_DISTANCE), yard_line: r.pff_FIELDPOSITION, grade, pos, team,
     play_action: r.pff_PLAYACTION === '1', screen: r.pff_SCREEN === '1', rpo: r.pff_RUNPASSOPTION === '1',
     quick_game: pass && num(r.pff_TIMETOTHROW) !== null && num(r.pff_TIMETOTHROW) <= 2.0,
@@ -222,17 +222,21 @@ const SACK_A = ['Sack allowed', 'Hit allowed', 'Hurry allowed', 'Pressure allowe
 const SACK = ['Sack', 'Hit', 'Hurry', 'Pressure', 'Batted pass-defender'];
 const BALL = ['Interception caught', 'Pass broken up', 'Dropped interception'];
 const NEG = R(p => p.grade !== null && p.grade <= -0.5, { worst_pool: () => true });
-// vs. Top Competition: Power Four (Big Ten, SEC, ACC, Big 12) plays where he is involved first; if he runs short,
-// Mountain West plays where he is involved, then his strong plays (graded +1 or better, involved) against anyone else,
-// and only then Power Four plays where nothing happened. Worst slots: Power Four, then Mountain West.
+// vs. Top Competition, by opponent level (set from Ultimate's conference data):
+//   1 Power Four (Big Ten, SEC, ACC, Big 12, Notre Dame)   2 Mountain West, American, Pac-12
+//   3 Sun Belt, C-USA, MAC, FBS Independents               4 FCS / everyone else
+// Fills with level-1 plays where he is involved first, then level 2, then level 3 (involved), then his strong
+// FCS plays (graded +1 or better), and only then level-1 plays where nothing happened. Worst slots: levels 1-3.
 const strongPlay = p => p.grade !== null && p.grade >= 1 && p.involve >= 3;
-const TOP = R(p => !!p.opponent_power4 || (p.opponent_next && p.involve > 0) || strongPlay(p), {
-  worst_pool: p => (p.opponent_power4 || p.opponent_next) && p.grade !== null && p.grade <= -0.5,
+const lvl = p => p.opponent_level || 4;
+const TOP = R(p => lvl(p) === 1 || (lvl(p) <= 3 && p.involve > 0) || strongPlay(p), {
+  worst_pool: p => lvl(p) <= 3 && p.grade !== null && p.grade <= -0.5,
   tiers_fn: all => [
-    all.filter(p => p.opponent_power4 && p.involve > 0),
-    all.filter(p => !p.opponent_power4 && p.opponent_next && p.involve > 0),
-    all.filter(p => !p.opponent_power4 && !p.opponent_next),
-    all.filter(p => p.opponent_power4 && !(p.involve > 0))],
+    all.filter(p => lvl(p) === 1 && p.involve > 0),
+    all.filter(p => lvl(p) === 2 && p.involve > 0),
+    all.filter(p => lvl(p) === 3 && p.involve > 0),
+    all.filter(p => lvl(p) === 4),
+    all.filter(p => lvl(p) === 1 && !(p.involve > 0))],
   lesser_note: true
 });
 const STOPS = R(p => (res(p, 'Tackler') && p.def_success) || res(p, 'Missed tackle'), { best_pool: p => res(p, 'Tackler') && p.def_success, worst_pool: p => res(p, 'Missed tackle') });
@@ -450,8 +454,8 @@ function pickCutup(c, plays, used) {
     notes.push(`No more +1 to +2 plays left for this cutup: best slots use his next-highest grades (${[h ? h + ' at +0.5' : '', z ? z + ' at 0.0' : ''].filter(Boolean).join(', ')}), plays where he makes a play / is targeted / is at the point of attack first`);
   }
   if (c.prefer) { const k = out.filter(c.prefer).length; if (c.prefer_label) { if (out.length) notes.push(`${k} of ${out.length} ${c.prefer_label}` + (k < out.length ? '; the rest are his most involved other plays for this cutup' : '')); } else if (k < out.length) notes.push(`${k} of ${out.length} from the preferred plays; the rest filled from the cutup's other plays`); }
-  if (c.lesser_note) { const m = out.filter(p => !p.opponent_power4 && p.opponent_next).length, l = out.filter(p => !p.opponent_power4 && !p.opponent_next).length;
-    if (m || l) notes.push(`Not enough involved Power Four plays: ${[m ? m + ' vs. Mountain West' : '', l ? l + ' vs. other opponents (graded +1 or better)' : ''].filter(Boolean).join(', ')}`); }
+  if (c.lesser_note) { const n2 = out.filter(p => lvl(p) === 2).length, n3 = out.filter(p => lvl(p) === 3).length, n4 = out.filter(p => lvl(p) === 4).length;
+    if (n2 || n3 || n4) notes.push(`Not enough involved Power Four plays: ${[n2 ? n2 + ' vs. MWC / American / Pac-12' : '', n3 ? n3 + ' vs. Sun Belt / C-USA / MAC / FBS Ind.' : '', n4 ? n4 + ' vs. FCS (graded +1 or better)' : ''].filter(Boolean).join(', ')}`); }
   { const u = out.filter(p => !(p.involve > 0)).length; if (u) notes.push(`${u} play(s) where he isn't directly involved: he didn't have enough involved plays of this type`); }
   return { picked: out, notes };
 }
@@ -618,9 +622,16 @@ function tagsFor(rows, player) {
   return tags;
 }
 
-// Power Four = teams in the Big Ten, SEC, ACC and Big 12 (Ultimate's own conference data, read once per page);
-// Mountain West is the next level down (used by vs. Top Competition when he is short). SEC list is only a fallback.
-const P4_CONFS = ['big ten', 'sec', 'acc', 'big 12'], NEXT_CONFS = ['mwc', 'mountain west'];
+// Opponent levels from Ultimate's own conference data (read once per page):
+//   1 Power Four: Big Ten, SEC, ACC, Big 12 + Notre Dame      2 Mountain West, American, Pac-12
+//   3 Sun Belt, C-USA, MAC, FBS Independents                  4 FCS / everyone else
+// The returned Set holds the level-1 teams; .level maps every team code to its level. SEC list is only a fallback.
+const LEVELS = [
+  [1, ['big ten', 'sec', 'acc', 'big 12']],
+  [2, ['mwc', 'mountain west', 'the american', 'american', 'aac', 'pac-12', 'pac 12']],
+  [3, ['sun belt', 'c-usa', 'conference usa', 'mac', 'ind (fbs)', 'fbs independents']]
+];
+const LEVEL_NAMES = { 1: 'P4', 2: 'MWC/AAC/Pac-12', 3: 'G5', 4: 'FCS' };
 let P4CACHE = null;
 async function loadP4() {
   if (P4CACHE) return P4CACHE;
@@ -629,11 +640,20 @@ async function loadP4() {
     const j = await getJSON('/api/v1/teams?league=NCAA');
     const arr = Array.isArray(j) ? j : (Object.values(j).find(Array.isArray) || []);
     const conf = t => (t.groups || []).filter(g => g.type === 'CONF' && (g.start_season || 0) <= yr && (g.end_season || 3000) >= yr).map(g => String(g.name || '').trim().toLowerCase());
-    const s = new Set(arr.filter(t => conf(t).some(c => P4_CONFS.includes(c))).map(t => t.video_abbreviation).filter(Boolean));
-    s.next = new Set(arr.filter(t => conf(t).some(c => NEXT_CONFS.includes(c))).map(t => t.video_abbreviation).filter(Boolean));
+    const level = new Map();
+    arr.forEach(t => {
+      if (!t.video_abbreviation) return;
+      const cs = conf(t);
+      let l = 4;
+      for (const [n, names] of LEVELS) if (cs.some(c => names.includes(c))) { l = n; break; }
+      if (/notre dame/i.test(String(t.city || '') + ' ' + String(t.nickname || '')) && (l === 3 || l === 4)) l = 1;
+      level.set(t.video_abbreviation, l);
+    });
+    const s = new Set([...level].filter(([, l]) => l === 1).map(([k]) => k));
+    s.level = level;
     if (s.size >= 40) { P4CACHE = s; return s; }
   } catch (e) {}
-  P4CACHE = new Set(P4_DEFAULT); P4CACHE.next = new Set();
+  P4CACHE = new Set(P4_DEFAULT);
   return P4CACHE;
 }
 function p4set() { return P4CACHE || new Set(P4_DEFAULT); }
@@ -1067,7 +1087,7 @@ async function review(openId) {
           if (!p) return `<tr><td class="n">${id}</td><td colspan="9" class="mut">Not in his play data</td></tr>`;
           const d = describe(p), fit = c.match(p), b = band[id] || 'unknown';
           out.push([c.name, id, b, fmtG(p.grade), p.game_date, p.opponent || '', p.quarter || '', p.down ? p.down + ' & ' + p.distance : '', d.role, d.ctx, d.res, fit ? 'yes' : 'NO']);
-          return `<tr><td class="n">${id}</td><td><span class="b b-${b.replace(' ', '-')}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_power4 ? ' <span class="mut">P4</span>' : p.opponent_next ? ' <span class="mut">MWC</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
+          return `<tr><td class="n">${id}</td><td><span class="b b-${b.replace(' ', '-')}">${b}</span></td><td class="n ${p.grade > 0 ? 'gp' : p.grade < 0 ? 'gn' : ''}">${fmtG(p.grade)}</td><td class="n">${escH(String(p.game_date || '').slice(0, 10))}</td><td>${escH(p.opponent || '')}${p.opponent_level ? ' <span class="mut">' + LEVEL_NAMES[p.opponent_level] + '</span>' : ''}</td><td class="n">Q${p.quarter || '?'} ${p.down ? p.down + '&' + p.distance : ''}</td><td>${escH(d.role)}</td><td>${escH(d.ctx)}</td><td>${escH(d.res)}</td><td class="${fit ? 'ok' : 'no'}">${fit ? '✓' : '✗'}</td></tr>`;
         }).join('');
         const notes = rr && rr.notes && rr.notes.length ? rr.notes.map(n => `<div class="note">• ${escH(n)}</div>`).join('') : '';
         box.appendChild(el(`<div class="kr-cut">${head}${notes}<table><thead><tr><th>Play ID</th><th>Band</th><th>Grade</th><th>Date</th><th>Opp</th><th>Situation</th><th>His role</th><th>Play</th><th>Result</th><th>Fits</th></tr></thead><tbody>${body}</tbody></table></div>`));
@@ -1081,6 +1101,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-26T12:39:59.506Z";
+window.KCApp.built = "2026-11-26T12:47:24.967Z";
 window.KCApp[mode]();
 })();
