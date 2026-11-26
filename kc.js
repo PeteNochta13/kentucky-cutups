@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T01:25:27.211Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T12:29:20.590Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -259,7 +259,10 @@ const RULES = {
     'Pass Pro': R(p => role(p, 'Pass blocker') && !(p.pa_fake && !p.engaged), { prefer: p => p.engaged, how: 'Snaps where he engages in protection first; play-fake carry-outs with no block left out' })
   },
   WR: {
-    'vs. Press': R(p => role(p, 'vs Press coverage')),
+    // pass plays only: he releases into a route or is targeted against press (run-blocking snaps belong to Perimeter Blocking)
+    'vs. Press': R(p => role(p, 'vs Press coverage') && role(p, 'Running a route', 'Target receiver'), {
+      prefer: p => role(p, 'Target receiver'), prefer_label: 'targeted vs. press',
+      how: 'Releases and targets vs. press only (no run blocking): explosive catches first, then catches, targets, then releases' }),
     'Targets vs. Man': TGT_MAN, 'Targets vs. Zone': TGT_ZONE,
     'Deep Targets': R(p => role(p, 'Target receiver') && depthIn(p, 20, 99)),
     'Contested & Drops': R(p => res(p, 'Contested target', 'Dropped pass targeted'), { best_pool: p => res(p, 'Contested target') && res(p, 'Reception'), worst_pool: p => res(p, 'Dropped pass targeted') }),
@@ -328,6 +331,10 @@ const RULES = {
 };
 
 const DB_CODES = ['SAF', 'STAR', 'CB'];
+const wrSnap = p => !p.roles.has('Run blocker') && !(p.roles.has('Pass blocker') && !role(p, 'Target receiver', 'Ball carrier')) && role(p, 'Running a route', 'Target receiver', 'Ball carrier');
+const wrRank = p => p.explosive ? 0 : res(p, 'Reception') ? 1 : role(p, 'Target receiver', 'Ball carrier') ? 2 : 3;
+// worst slots, the other way round: failed targets (drops, incompletions, picks) first, then bad catches, then bad releases
+const wrWorstRank = p => (role(p, 'Target receiver', 'Ball carrier') && !res(p, 'Reception')) ? 0 : res(p, 'Reception') ? 1 : 2;
 const NO_TARGET_PREF = ['Run D & Tackling', 'Run Fits & Perimeter', 'Tackling & Missed Tackles', 'Blitz & Pressure', 'Run Support', 'Open-Field Tackling'];
 function cutups(PLAN, code) {
   const P = PLAN.POSITIONS.find(x => x.code === code);
@@ -339,6 +346,15 @@ function cutups(PLAN, code) {
     // DBs: inside every cutup, plays where he is targeted in coverage come first (the cutup's own rule still decides what qualifies)
     // (run / tackling / blitz cutups keep point-of-attack ranking: tackles, first contact, pressure)
     if (DB_CODES.includes(code) && !c.prefer && !NO_TARGET_PREF.includes(r.name)) { c.prefer = p => p.roles.has('Primary coverage'); c.prefer_label = 'targeted in coverage'; }
+    // WR: blocking snaps only ever go in Perimeter Blocking. Every other cutup (Negative Plays / vs. Top Competition too)
+    // uses snaps where he releases into a route, is targeted, or has the ball, ranked explosive > catch > target > release.
+    if (code === 'WR' && r.name === 'Perimeter Blocking') c.rollover_last = true;
+    if (code === 'WR' && r.name !== 'Perimeter Blocking') {
+      const m = c.match;
+      c.match = p => wrSnap(p) && m(p);
+      c.rank = wrRank; c.wrank = wrWorstRank;
+      if (!c.prefer) { c.prefer = p => role(p, 'Target receiver', 'Ball carrier'); c.prefer_label = 'targets / ball in his hands'; }
+    }
     return c;
   });
 }
@@ -376,13 +392,14 @@ function pickCutup(c, plays, used) {
     // (+0.5, then 0.0 clean reps) so the best slots still show his ceiling. Never a negative play.
     let bpool = c.best_pool ? recent.filter(c.best_pool) : graded.filter(p => p.grade >= 0);
     let wpool = c.worst_pool ? recent.filter(c.worst_pool) : graded.filter(p => p.grade <= -0.5);
-    bpool = bpool.slice().sort((a, b) => cmpKey([c.best_key ? c.best_key(a) : 0, -g0(a), -(a.involve || 0)], [c.best_key ? c.best_key(b) : 0, -g0(b), -(b.involve || 0)]));
-    wpool = wpool.slice().sort((a, b) => cmpKey([c.worst_key ? c.worst_key(a) : 0, g0(a)], [c.worst_key ? c.worst_key(b) : 0, g0(b)]));
+    bpool = bpool.slice().sort((a, b) => cmpKey([c.best_key ? c.best_key(a) : 0, c.rank ? c.rank(a) : 0, -g0(a), -(a.involve || 0)], [c.best_key ? c.best_key(b) : 0, c.rank ? c.rank(b) : 0, -g0(b), -(b.involve || 0)]));
+    wpool = wpool.slice().sort((a, b) => cmpKey([c.worst_key ? c.worst_key(a) : 0, c.wrank ? c.wrank(a) : 0, g0(a)], [c.worst_key ? c.worst_key(b) : 0, c.wrank ? c.wrank(b) : 0, g0(b)]));
     const before = out.length;
     take(bpool, c.best - have('best'), used, perGame, cap, 'best', out);
     if (!c.best_pool) out.slice(before).filter(p => p.grade < 1).forEach(p => lowBest.push(p.grade));
     take(wpool, c.worst - have('worst'), used, perGame, cap, 'worst', out);
     let fill = recent.filter(p => p.involve > 0).concat(recent.filter(p => !(p.involve > 0)));
+    if (c.rank) fill = fill.map((p, i) => [p, i]).sort((a, b) => (c.rank(a[0]) - c.rank(b[0])) || a[1] - b[1]).map(x => x[0]);
     if ((c.best_pool || c.worst_pool) && c.recent === 0) fill = recent.filter(p => (c.best_pool && c.best_pool(p)) || (c.worst_pool && c.worst_pool(p)));
     // unfilled best slots stay open (filled below with his next-best plays), so recent plays don't take them
     const hold = finalPass || c.best_pool ? 0 : Math.max(0, c.best - have('best'));
@@ -397,7 +414,7 @@ function pickCutup(c, plays, used) {
     for (const t of tiers) {
       const need = Math.min(c.best - have('best') - have('next best'), target - out.length);
       if (need <= 0) break;
-      const pool = t.filter(p => !used.has(p.play_id)).sort((a, b) => ((b.grade === null ? -9 : b.grade) - (a.grade === null ? -9 : a.grade)) || ((b.involve || 0) - (a.involve || 0)));
+      const pool = t.filter(p => !used.has(p.play_id)).sort((a, b) => (c.rank ? c.rank(a) - c.rank(b) : 0) || ((b.grade === null ? -9 : b.grade) - (a.grade === null ? -9 : a.grade)) || ((b.involve || 0) - (a.involve || 0)));
       const before = out.length;
       take(pool, need, used, perGame, cap, 'next best', out);
       out.slice(before).forEach(p => { if (p.grade !== null && p.grade >= 0) p.band = 'best'; });
@@ -434,7 +451,8 @@ function build(PLAN, plays, code) {
   let spare = TOTAL - results.reduce((a, r) => a + r.plays.length, 0);
   const rolled = {};
   if (spare > 0) {
-    const order = results.filter(r => !r.cut.universal).slice().sort((a, b) => b.cut.plays - a.cut.plays);
+    // spare slots: biggest cutups first; WR blocking only after the receiving cutups
+    const order = results.filter(r => !r.cut.universal).slice().sort((a, b) => ((a.cut.rollover_last ? 1 : 0) - (b.cut.rollover_last ? 1 : 0)) || (b.cut.plays - a.cut.plays));
     let progress = true;
     while (spare > 0 && progress) {
       progress = false;
@@ -445,7 +463,7 @@ function build(PLAN, plays, code) {
         let cands = byRecent(plays.filter(p => !used.has(p.play_id) && c.match(p)));
         if (c.best_pool || c.worst_pool) cands = cands.filter(p => (c.best_pool && c.best_pool(p)) || (c.worst_pool && c.worst_pool(p)));
         if (c.prefer) cands = cands.filter(c.prefer).concat(cands.filter(p => !c.prefer(p)));
-        cands = cands.map((p, i) => [p, i]).sort((a, b) => ((b[0].grade === null ? -9 : b[0].grade) - (a[0].grade === null ? -9 : a[0].grade)) || ((b[0].involve || 0) - (a[0].involve || 0)) || (c.prefer ? (c.prefer(b[0]) - c.prefer(a[0])) : 0) || a[1] - b[1]).map(x => x[0]);
+        cands = cands.map((p, i) => [p, i]).sort((a, b) => (c.rank ? c.rank(a[0]) - c.rank(b[0]) : 0) || ((b[0].grade === null ? -9 : b[0].grade) - (a[0].grade === null ? -9 : a[0].grade)) || ((b[0].involve || 0) - (a[0].involve || 0)) || (c.prefer ? (c.prefer(b[0]) - c.prefer(a[0])) : 0) || a[1] - b[1]).map(x => x[0]);
         const g = {}; r.plays.forEach(x => g[x.game_id] = (g[x.game_id] || 0) + 1);
         const pick = cands.find(p => (g[p.game_id] || 0) < PER_GAME) || cands[0];
         if (pick) { used.add(pick.play_id); r.plays.push(Object.assign({}, pick, { band: 'rollover' })); rolled[c.label] = (rolled[c.label] || 0) + 1; spare--; progress = true; }
@@ -1029,6 +1047,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-26T01:25:27.211Z";
+window.KCApp.built = "2026-11-26T12:29:20.590Z";
 window.KCApp[mode]();
 })();
