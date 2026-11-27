@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-26T13:16:55.735Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-27T14:54:59.729Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -358,6 +358,7 @@ const wrSnap = p => !p.roles.has('Run blocker') && !(p.roles.has('Pass blocker')
 const wrRank = p => p.explosive ? 0 : res(p, 'Reception') ? 1 : role(p, 'Target receiver', 'Ball carrier') ? 2 : 3;
 // worst slots, the other way round: failed targets (drops, incompletions, picks) first, then bad catches, then bad releases
 const wrWorstRank = p => (role(p, 'Target receiver', 'Ball carrier') && !res(p, 'Reception')) ? 0 : res(p, 'Reception') ? 1 : 2;
+const TE_RECV = ['Targets vs. Man', 'Targets vs. Zone', 'Seam & Deep', 'Contested, Drops & RAC'];
 const NO_TARGET_PREF = ['Run D & Tackling', 'Run Fits & Perimeter', 'Tackling & Missed Tackles', 'Blitz & Pressure', 'Run Support', 'Open-Field Tackling'];
 function cutups(PLAN, code) {
   const P = PLAN.POSITIONS.find(x => x.code === code);
@@ -372,7 +373,8 @@ function cutups(PLAN, code) {
     // WR: blocking snaps only ever go in Perimeter Blocking. Every other cutup (Negative Plays / vs. Top Competition too)
     // uses snaps where he releases into a route, is targeted, or has the ball, ranked explosive > catch > target > release.
     if (code === 'WR' && r.name === 'Perimeter Blocking') c.rollover_last = true;
-    if (code === 'WR' && r.name !== 'Perimeter Blocking') {
+    // TE: the same receiving logic in his route-running / pass-catching cutups; blocking cutups and Negative Plays / vs. Top Competition unchanged
+    if ((code === 'WR' && r.name !== 'Perimeter Blocking') || (code === 'TE' && TE_RECV.includes(r.name))) {
       const m = c.match;
       c.match = p => wrSnap(p) && m(p);
       c.rank = wrRank; c.wrank = wrWorstRank;
@@ -1108,6 +1110,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-26T13:16:55.735Z";
+window.KCApp.built = "2026-11-27T14:54:59.729Z";
 window.KCApp[mode]();
 })();
