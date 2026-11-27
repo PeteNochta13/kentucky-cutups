@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-27T14:54:59.729Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-27T15:10:31.753Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -127,7 +127,8 @@ function adapt(r, t, p4) {
     p.route_code = pm ? pm[1].trim() : '';
     if (p.route_code && /\d/.test(p.route_code.split('(')[0])) roles.add('Running a route');
     if (has(r.pff_PASSBLOCKING, t)) roles.add('Pass blocker');
-    if (run && pos && r.pff_BALLCARRIER !== t && r.pff_QB !== t) roles.add('Run blocker');
+    // a run snap only counts as blocking if he isn't running a route (RPO / clear-out routes are not blocks)
+    if (run && pos && r.pff_BALLCARRIER !== t && r.pff_QB !== t && !roles.has('Running a route')) roles.add('Run blocker');
     if (String(r.pff_PRESS || '').split(';').some(x => x.trim().endsWith('> ' + t))) roles.add('vs Press coverage');
     const target = roles.has('Target receiver');
     p.handoff = run && r.pff_BALLCARRIER === t && r.pff_QB !== t;   // designed run he was handed (no catches, no direct snaps)
@@ -290,7 +291,14 @@ const RULES = {
     'Deep Targets': R(p => role(p, 'Target receiver') && depthIn(p, 20, 99)),
     'Contested & Drops': R(p => res(p, 'Contested target', 'Dropped pass targeted'), { best_pool: p => res(p, 'Contested target') && res(p, 'Reception'), worst_pool: p => res(p, 'Dropped pass targeted') }),
     'RAC': R(p => res(p, 'Reception')),
-    'Perimeter Blocking': R(p => role(p, 'Run blocker'))
+    // only snaps where PFF charted an actual block for him (block type), ranked by physicality:
+    // block wins first, then physical blocks (crack, down, push, trap/wham, combo, pull, kick), then man / reach / cutoff / stalk, then downfield.
+    // Worst: charted block losses first. If the block chart can't be read, falls back to run snaps where he isn't running a route.
+    'Perimeter Blocking': R(p => p.block_class !== undefined ? (!!p.block_class && !role(p, 'Ball carrier', 'Target receiver')) : role(p, 'Run blocker'), {
+      rank: p => p.block_win ? 0 : p.block_class === 'phys' ? 1 : p.block_class === 'eng' ? 2 : p.block_class === 'down' ? 3 : 4,
+      wrank: p => p.block_loss ? 0 : 1,
+      worst_pool: p => !!p.block_loss || (p.grade !== null && p.grade <= -0.5),
+      how: 'Charted blocks only (PFF block type): wins first, then physical blocks (crack, down, push, trap, combo), then man / reach / cutoff / stalk, then downfield. RPO routes and no-block snaps left out' })
   },
   TE: {
     'Targets vs. Man': TGT_MAN, 'Targets vs. Zone': TGT_ZONE,
@@ -668,12 +676,38 @@ async function loadP4() {
 function p4set() { return P4CACHE || new Set(P4_DEFAULT); }
 
 
-function buildFor(rows, player, code) {
+// PFF's charted block for each of his snaps (Ultimate's Block Type (Player) and block win / loss filters)
+const BLOCK_CLASSES = { phys: ['CK', 'DN', 'PH', 'TW', 'CM', 'PB', 'SB', 'BK', 'CS'], eng: ['MN', 'RH', 'CU', 'ST', 'HG', 'PL', 'SF', 'HP', 'HL', 'DW', 'BF'], down: ['DF'] };
+async function blockInfo(playerId, years) {
+  try {
+    const base = { league: { eq: 'NCAA' }, season_week: { in: seasonWeeks(years) }, participating_player_id: { eq: playerId } };
+    const q = async extra => ((await sendJSON('/api/v1/ultimate/plays/ids', 'POST', { context: 'pff', filters: Object.assign({}, base, extra) })).ids || []).map(Number);
+    const all = [].concat(...Object.values(BLOCK_CLASSES));
+    const cls = new Map();
+    for (const [k, codes] of Object.entries(BLOCK_CLASSES)) (await q({ player_block_type: { in: codes } })).forEach(id => { if (!cls.has(id)) cls.set(id, k); });
+    const win = new Set(await q({ player_block_type: { in: all }, or_player_result: { player_offense_block_win: true } }));
+    const loss = new Set(await q({ player_block_type: { in: all }, or_player_result: { player_offense_block_loss: true } }));
+    return { cls, win, loss };
+  } catch (e) { return null; }
+}
+function annotateBlocks(plays, binfo) {
+  if (!binfo) return;
+  plays.forEach(p => {
+    const id = Number(p.play_id);
+    p.block_class = binfo.cls.get(id) || null;
+    p.block_win = binfo.win.has(id);
+    p.block_loss = binfo.loss.has(id);
+    if (p.block_class && (p.involve || 0) < 3) p.involve = 3;   // a charted block = he engaged a defender
+  });
+}
+
+function buildFor(rows, player, code, binfo) {
   const tags = tagsFor(rows, player);
   if (!tags.length) throw new Error('Could not find his jersey tag in the play data.');
   const seen = new Set(), plays = [];
   const p4 = p4set();
   tags.forEach(t => KC.playsFor(rows, t, p4).forEach(p => { if (!seen.has(p.play_id)) { seen.add(p.play_id); plays.push(p); } }));
+  annotateBlocks(plays, binfo);
   return { tags, plays, build: KC.build(PLAN, plays, code) };
 }
 
@@ -843,9 +877,12 @@ function open() {
       const csv = await playFeed(ids, m => s.textContent = m);
       const rows = KC.parseCSV(csv);
       s.textContent = `Play data loaded (${rows.length} rows)`; s.className = 'kc-step ok';
+      s = step('Reading his charted blocks…');
+      const binfo = await blockInfo(player.id, years);
+      s.textContent = binfo ? `Charted blocks loaded (${binfo.cls.size})` : 'Charted blocks unavailable: using run snaps without a route'; s.className = binfo ? 'kc-step ok' : 'kc-step';
       for (const code of codes) {
         s = step(`Building ${code} cutup…`);
-        const { plays, build: b, tags } = buildFor(rows, player, code);
+        const { plays, build: b, tags } = buildFor(rows, player, code, binfo);
         const ids50 = b.results.flatMap(r => r.plays.map(p => p.play_id));
         s.textContent = `${code}: ${ids50.length} plays picked from ${plays.length} (${tags.join(', ')})`; s.className = 'kc-step ok';
         s = step(`Saving to ${FOLDERS[code]}…`);
@@ -913,7 +950,8 @@ function describe(p) {
   if (p.roles.has('Target receiver')) bits.push('Targeted' + (p.targeted_depth !== null ? ` ${p.targeted_depth}y` : ''));
   else if (p.roles.has('Running a route')) bits.push('Route ' + (p.route_code || '').split('(')[0]);
   if (p.roles.has('Pass blocker')) bits.push(p.engaged ? 'Pass pro (engaged)' : 'Pass pro');
-  if (p.roles.has('Run blocker')) bits.push('Run block');
+  if (p.block_class) bits.push((p.block_class === 'phys' ? 'Physical block' : p.block_class === 'down' ? 'Downfield block' : 'Block') + (p.block_win ? ' (win)' : p.block_loss ? ' (loss)' : ''));
+  else if (p.roles.has('Run blocker')) bits.push(p.block_class === null ? 'Run snap, no charted block' : 'Run block');
   if (p.roles.has('Pass rushing')) bits.push('Rush');
   if (p.roles.has('Primary coverage')) bits.push('Targeted in coverage' + (p.targeted_depth !== null ? ` ${p.targeted_depth}y` : ''));
   if (p.roles.has('Coverage')) bits.push('Cov ' + (p.coverage_role || ''));
@@ -1049,6 +1087,9 @@ async function review(openId) {
       const p4 = p4set();
       const byId = {};
       tags.forEach(tg => KC.playsFor(rows, tg, p4).forEach(p => { if (!byId[p.play_id]) byId[p.play_id] = p; }));
+      const ryrs = meta.yrs.length ? meta.yrs : [String(new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1)];
+      const binfo = await blockInfo(player.id, ryrs);
+      annotateBlocks(Object.values(byId), binfo);
       const cuts = KC.cutups(PLAN, t.code);
       // which cutup each saved play is in: the playlist is saved in cutup order, notes hold the counts
       let seg = [];
@@ -1062,7 +1103,7 @@ async function review(openId) {
         const yrs = meta.yrs.length ? meta.yrs : [String(new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1)];
         const all = await playIds(player.id, yrs);
         const fullRows = KC.parseCSV(await playFeed(all));
-        const rb = buildFor(fullRows, player, t.code).build;
+        const rb = buildFor(fullRows, player, t.code, binfo).build;
         rb.results.forEach(r => r.plays.forEach(p => band[p.play_id] = p.band));
         const fresh = new Set(rb.results.flatMap(r => r.plays.map(p => p.play_id)));
         const changed = ids.filter(id => !fresh.has(id)).length;
@@ -1110,6 +1151,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-27T14:54:59.729Z";
+window.KCApp.built = "2026-11-27T15:10:31.753Z";
 window.KCApp[mode]();
 })();
