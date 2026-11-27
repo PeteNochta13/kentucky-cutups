@@ -1,4 +1,4 @@
-/* Kentucky Cutups for PFF Ultimate — built 2026-11-27T15:10:31.753Z. Loaded by the bookmark buttons; see README. */
+/* Kentucky Cutups for PFF Ultimate — built 2026-11-27T15:33:40.363Z. Loaded by the bookmark buttons; see README. */
 (function(){
 if (location.hostname !== 'ultimate.pff.com') { alert('Open PFF Ultimate (ultimate.pff.com) first, then click this button.'); return; }
 var mode = window.__kcMode || 'open';
@@ -249,6 +249,15 @@ const BALLPROD = R(p => res(p, ...BALL), { best_pool: p => res(p, ...BALL), best
 const PRESS_ALLOWED = R(p => res(p, ...SACK_A), { worst_pool: () => true, worst_key: prio(SACK_A) });
 const PRESSURES = R(p => role(p, 'Pass rushing') && res(p, ...SACK), { best_pool: () => true, best_key: prio(SACK) });
 const TRUE_RUSH = R(p => role(p, 'Pass rushing') && truePass(p));
+// Blocking cutups (WR perimeter, TE in-line / space): only snaps where PFF charted an actual block for him (block type),
+// ranked by physicality: block wins first (physical wins at the top), then physical blocks (crack, down, push, trap/wham, combo, pull, kick),
+// then man / reach / cutoff / stalk, then downfield. Worst: charted block losses first.
+// If the block chart can't be read, falls back to run snaps where he isn't running a route.
+const BLOCKS = (extra = () => true, kw = {}) => R(p => (p.block_class !== undefined ? (!!p.block_class && !role(p, 'Ball carrier', 'Target receiver')) : role(p, 'Run blocker')) && extra(p), Object.assign({
+  rank: p => (p.block_win ? 0 : 4) + (p.block_class === 'phys' ? 0 : p.block_class === 'eng' ? 1 : p.block_class === 'down' ? 2 : 3),   // physical win, engaged win, downfield win, physical, engaged, downfield
+  wrank: p => p.block_loss ? 0 : 1,
+  worst_pool: p => !!p.block_loss || (p.grade !== null && p.grade <= -0.5),
+  how: 'Charted blocks only (PFF block type): block wins first (physical wins at the top), then physical blocks (crack, down, push, trap, combo), then man / reach / cutoff / stalk, then downfield. RPO routes and no-block snaps left out' }, kw));
 const TRUE_PRO = R(p => role(p, 'Pass blocker') && truePass(p));
 const OL_ZONE = R(p => role(p, 'Run blocker') && in_(p.run_concept, ...ZONE));
 const OL_GAP = R(p => role(p, 'Run blocker') && in_(p.run_concept, ...GAP));
@@ -291,21 +300,14 @@ const RULES = {
     'Deep Targets': R(p => role(p, 'Target receiver') && depthIn(p, 20, 99)),
     'Contested & Drops': R(p => res(p, 'Contested target', 'Dropped pass targeted'), { best_pool: p => res(p, 'Contested target') && res(p, 'Reception'), worst_pool: p => res(p, 'Dropped pass targeted') }),
     'RAC': R(p => res(p, 'Reception')),
-    // only snaps where PFF charted an actual block for him (block type), ranked by physicality:
-    // block wins first, then physical blocks (crack, down, push, trap/wham, combo, pull, kick), then man / reach / cutoff / stalk, then downfield.
-    // Worst: charted block losses first. If the block chart can't be read, falls back to run snaps where he isn't running a route.
-    'Perimeter Blocking': R(p => p.block_class !== undefined ? (!!p.block_class && !role(p, 'Ball carrier', 'Target receiver')) : role(p, 'Run blocker'), {
-      rank: p => p.block_win ? 0 : p.block_class === 'phys' ? 1 : p.block_class === 'eng' ? 2 : p.block_class === 'down' ? 3 : 4,
-      wrank: p => p.block_loss ? 0 : 1,
-      worst_pool: p => !!p.block_loss || (p.grade !== null && p.grade <= -0.5),
-      how: 'Charted blocks only (PFF block type): wins first, then physical blocks (crack, down, push, trap, combo), then man / reach / cutoff / stalk, then downfield. RPO routes and no-block snaps left out' })
+    'Perimeter Blocking': BLOCKS()
   },
   TE: {
     'Targets vs. Man': TGT_MAN, 'Targets vs. Zone': TGT_ZONE,
     'Seam & Deep': R(p => role(p, 'Target receiver') && depthIn(p, 10, 99)),
     'Contested, Drops & RAC': R(p => res(p, 'Contested target', 'Dropped pass targeted', 'Reception'), { best_pool: p => res(p, 'Reception'), worst_pool: p => res(p, 'Dropped pass targeted') }),
-    'In-Line Run Blocks': R(p => role(p, 'Run blocker') && in_(p.lined_up_as, 'TE-L', 'TE-R')),
-    'Space Blocks': R(p => role(p, 'Run blocker') && in_(p.block_level, 'Second Level', 'Downfield'), { approx: 'Block level is not in the play feed: run blocks from the slot / wing / backfield are used' }),
+    'In-Line Run Blocks': BLOCKS(p => in_(p.lined_up_as, 'TE-L', 'TE-R')),
+    'Space Blocks': BLOCKS(p => !in_(p.lined_up_as, 'TE-L', 'TE-R') || p.block_class === 'down', { approx: 'Block level is not in the play feed: charted blocks from the slot / wing / backfield, plus downfield blocks, are used' }),
     'Pass Pro': R(p => role(p, 'Pass blocker') && !(p.pa_fake && !p.engaged), { prefer: p => p.engaged, how: 'Snaps where he engages in protection first; play-fake carry-outs with no block left out' })
   },
   OT: {
@@ -1151,6 +1153,6 @@ async function review(openId) {
 W.KCApp = { v: 2, open, review, parseTitle, parseNotes, describe, findPlayers, playIds, playFeed, buildFor, tagsFor, titleFor, notesFor, savePlaylist, folderFor, groupOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-window.KCApp.built = "2026-11-27T15:10:31.753Z";
+window.KCApp.built = "2026-11-27T15:33:40.363Z";
 window.KCApp[mode]();
 })();
